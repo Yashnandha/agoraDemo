@@ -377,69 +377,6 @@ export const useLiveStream = () => {
     setCallNotice('Call ended');
   };
 
-  const handleIncomingSignal = (signal: CallSignal) => {
-    if (signal.type === 'call-request') {
-      if (isHostRef.current) {
-        setIncomingCall({
-          callId: signal.callId,
-          callType: signal.callType,
-          fromRole: signal.fromRole,
-          status: 'ringing',
-        });
-        setCallNotice(
-          `Incoming ${signal.callType === 'audio' ? 'audio' : 'video'} call`,
-        );
-      }
-
-      return;
-    }
-
-    if (isHostRef.current) {
-      return;
-    }
-
-    if (
-      outgoingCallRef.current?.callId !== signal.callId &&
-      activeCallRef.current?.callId !== signal.callId
-    ) {
-      return;
-    }
-
-    if (signal.type === 'call-accepted') {
-      const connectedCall = {
-        callId: signal.callId,
-        callType: signal.callType,
-        fromRole: signal.fromRole,
-        status: 'connected' as const,
-      };
-
-      setOutgoingCall(null);
-      setActiveCall(connectedCall);
-      setCallNotice(
-        `${signal.callType === 'audio' ? 'Audio' : 'Video'} call connected`,
-      );
-      enterViewerCallMode();
-      return;
-    }
-
-    if (signal.type === 'call-rejected') {
-      setOutgoingCall(prev =>
-        prev?.callId === signal.callId
-          ? { ...prev, status: 'rejected' }
-          : prev,
-      );
-      setCallNotice('Host declined the call');
-      return;
-    }
-
-    if (signal.type === 'call-ended') {
-      setOutgoingCall(null);
-      setActiveCall(null);
-      setCallNotice('Call ended');
-      exitViewerCallMode();
-    }
-  };
-
   // ⏱ Timer
   useEffect(() => {
     let interval: any;
@@ -476,6 +413,69 @@ export const useLiveStream = () => {
       engineRef.current = engine;
 
       await engine.initialize({ appId: APP_ID });
+
+      const handleIncomingSignal = (signal: CallSignal) => {
+        if (signal.type === 'call-request') {
+          if (isHostRef.current) {
+            setIncomingCall({
+              callId: signal.callId,
+              callType: signal.callType,
+              fromRole: signal.fromRole,
+              status: 'ringing',
+            });
+            setCallNotice(
+              `Incoming ${signal.callType === 'audio' ? 'audio' : 'video'} call`,
+            );
+          }
+
+          return;
+        }
+
+        if (isHostRef.current) {
+          return;
+        }
+
+        if (
+          outgoingCallRef.current?.callId !== signal.callId &&
+          activeCallRef.current?.callId !== signal.callId
+        ) {
+          return;
+        }
+
+        if (signal.type === 'call-accepted') {
+          const connectedCall = {
+            callId: signal.callId,
+            callType: signal.callType,
+            fromRole: signal.fromRole,
+            status: 'connected' as const,
+          };
+
+          setOutgoingCall(null);
+          setActiveCall(connectedCall);
+          setCallNotice(
+            `${signal.callType === 'audio' ? 'Audio' : 'Video'} call connected`,
+          );
+          enterViewerCallMode();
+          return;
+        }
+
+        if (signal.type === 'call-rejected') {
+          setOutgoingCall(prev =>
+            prev?.callId === signal.callId
+              ? { ...prev, status: 'rejected' }
+              : prev,
+          );
+          setCallNotice('Host declined the call');
+          return;
+        }
+
+        if (signal.type === 'call-ended') {
+          setOutgoingCall(null);
+          setActiveCall(null);
+          setCallNotice('Call ended');
+          exitViewerCallMode();
+        }
+      };
 
       eventHandler.current = {
         onJoinChannelSuccess: () => {

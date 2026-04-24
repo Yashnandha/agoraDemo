@@ -1,8 +1,8 @@
 import React from 'react';
-import LiveStreamScreen from './src/screens/LiveStreamScreen';
+import ScreenLauncher from './src/screens/ScreenLauncher';
 
 const App = () => {
-  return <LiveStreamScreen />;
+  return <ScreenLauncher />;
 };
 
 export default App;
