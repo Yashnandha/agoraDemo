@@ -58,6 +58,7 @@ export const useLiveStream = () => {
     isMicOn: boolean;
     isCameraOn: boolean;
   } | null>(null);
+  const viewerCallModeRef = useRef(false);
 
   const [isJoined, setIsJoined] = useState(false);
   const [isHost, setIsHost] = useState(true);
@@ -143,18 +144,38 @@ export const useLiveStream = () => {
       };
     }
 
-    setIsMicOn(false);
+    setIsMicOn(true);
 
     if (callType === 'audio') {
-      setIsCameraOn(true);
-      engineRef.current.muteLocalAudioStream(true);
-      engineRef.current.muteLocalVideoStream(false);
+      setIsCameraOn(false);
+      engineRef.current.muteLocalAudioStream(false);
+      engineRef.current.muteLocalVideoStream(true);
       return;
     }
 
-    setIsCameraOn(false);
-    engineRef.current.muteLocalAudioStream(true);
-    engineRef.current.muteLocalVideoStream(true);
+    setIsCameraOn(true);
+    engineRef.current.muteLocalAudioStream(false);
+    engineRef.current.muteLocalVideoStream(false);
+  };
+
+  const enterViewerCallMode = () => {
+    if (!engineRef.current || viewerCallModeRef.current) {
+      return;
+    }
+
+    viewerCallModeRef.current = true;
+    engineRef.current.muteAllRemoteAudioStreams(true);
+    engineRef.current.muteAllRemoteVideoStreams(true);
+  };
+
+  const exitViewerCallMode = () => {
+    if (!engineRef.current || !viewerCallModeRef.current) {
+      return;
+    }
+
+    viewerCallModeRef.current = false;
+    engineRef.current.muteAllRemoteAudioStreams(false);
+    engineRef.current.muteAllRemoteVideoStreams(false);
   };
 
   const restoreHostMedia = () => {
@@ -231,6 +252,7 @@ export const useLiveStream = () => {
     engineRef.current?.leaveChannel();
     stopPreview();
     restoreHostMedia();
+    exitViewerCallMode();
     dataStreamIdRef.current = null;
     setRemoteUid(null);
     setUsers([]);
@@ -348,6 +370,7 @@ export const useLiveStream = () => {
     }
 
     restoreHostMedia();
+    exitViewerCallMode();
     setActiveCall(null);
     setOutgoingCall(null);
     setIncomingCall(null);
@@ -395,6 +418,7 @@ export const useLiveStream = () => {
       setCallNotice(
         `${signal.callType === 'audio' ? 'Audio' : 'Video'} call connected`,
       );
+      enterViewerCallMode();
       return;
     }
 
@@ -412,6 +436,7 @@ export const useLiveStream = () => {
       setOutgoingCall(null);
       setActiveCall(null);
       setCallNotice('Call ended');
+      exitViewerCallMode();
     }
   };
 
@@ -481,6 +506,7 @@ export const useLiveStream = () => {
           setCallNotice(null);
           dataStreamIdRef.current = null;
           restoreHostMedia();
+          exitViewerCallMode();
         },
 
         onStreamMessage: (_, senderUid, _streamId, data) => {

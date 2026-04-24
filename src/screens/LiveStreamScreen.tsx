@@ -46,6 +46,17 @@ const LiveStreamScreen = () => {
       {/* 🎥 VIDEO */}
       {isJoined && isHost ? (
         <RtcSurfaceView canvas={{ uid: 0 }} style={styles.video} />
+      ) : isJoined && activeCall && !isHost ? (
+        <View style={styles.center}>
+          <Text style={styles.emptyTitle}>
+            {activeCall.callType === 'audio'
+              ? 'Audio call active'
+              : 'Video call active'}
+          </Text>
+          <Text style={styles.text}>
+            Live stream playback is paused while the call is active.
+          </Text>
+        </View>
       ) : isJoined && remoteUid ? (
         <RtcSurfaceView canvas={{ uid: remoteUid }} style={styles.video} />
       ) : (
