@@ -8,12 +8,56 @@ import {
   IRtcEngine,
   IRtcEngineEventHandler,
 } from 'react-native-agora';
+import type { DataStreamConfig } from 'react-native-agora';
 
 import { APP_ID, DEFAULT_CHANNEL, TOKEN } from '../utils/constant';
+
+type CallType = 'audio' | 'video';
+type CallRole = 'host' | 'viewer';
+type CallSignalType = 'call-request' | 'call-accepted' | 'call-rejected' | 'call-ended';
+
+type CallSignal = {
+  type: CallSignalType;
+  callId: string;
+  callType: CallType;
+  fromRole: CallRole;
+};
+
+type CallSession = {
+  callId: string;
+  callType: CallType;
+  fromRole: CallRole;
+  status: 'ringing' | 'calling' | 'connected' | 'rejected' | 'ended';
+};
+
+const DATA_STREAM_CONFIG: DataStreamConfig = {
+  ordered: true,
+  syncWithAudio: false,
+};
+
+const createCallId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const encodeSignal = (signal: CallSignal) => {
+  const payload = JSON.stringify(signal);
+  return new Uint8Array(Array.from(payload).map(char => char.charCodeAt(0)));
+};
+
+const decodeSignal = (data: Uint8Array) => {
+  const payload = Array.from(data)
+    .map(char => String.fromCharCode(char))
+    .join('');
+
+  return JSON.parse(payload) as CallSignal;
+};
 
 export const useLiveStream = () => {
   const engineRef = useRef<IRtcEngine | null>(null);
   const eventHandler = useRef<IRtcEngineEventHandler>({});
+  const dataStreamIdRef = useRef<number | null>(null);
+  const hostMediaBeforeCallRef = useRef<{
+    isMicOn: boolean;
+    isCameraOn: boolean;
+  } | null>(null);
 
   const [isJoined, setIsJoined] = useState(false);
   const [isHost, setIsHost] = useState(true);
@@ -27,8 +71,104 @@ export const useLiveStream = () => {
 
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCameraOn, setIsCameraOn] = useState(true);
+  const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
+  const [outgoingCall, setOutgoingCall] = useState<CallSession | null>(null);
+  const [activeCall, setActiveCall] = useState<CallSession | null>(null);
+  const [callNotice, setCallNotice] = useState<string | null>(null);
+  const isHostRef = useRef(isHost);
+  const outgoingCallRef = useRef<CallSession | null>(null);
+  const activeCallRef = useRef<CallSession | null>(null);
 
   const resolvedChannelId = channelId.trim() || DEFAULT_CHANNEL;
+
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
+
+  useEffect(() => {
+    outgoingCallRef.current = outgoingCall;
+  }, [outgoingCall]);
+
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
+  const ensureDataStream = () => {
+    if (dataStreamIdRef.current !== null) {
+      return dataStreamIdRef.current;
+    }
+
+    const streamId = engineRef.current?.createDataStream(DATA_STREAM_CONFIG) ?? -1;
+
+    if (streamId < 0) {
+      setErrorMessage(`Unable to create call channel. Agora returned ${streamId}.`);
+      return null;
+    }
+
+    dataStreamIdRef.current = streamId;
+    return streamId;
+  };
+
+  const sendSignal = (signal: CallSignal) => {
+    const streamId = ensureDataStream();
+
+    if (streamId === null || !engineRef.current) {
+      return false;
+    }
+
+    const payload = encodeSignal(signal);
+    const result = engineRef.current.sendStreamMessage(
+      streamId,
+      payload,
+      payload.length,
+    );
+
+    if (result < 0) {
+      setErrorMessage(`Unable to send call signal. Agora returned ${result}.`);
+      return false;
+    }
+
+    return true;
+  };
+
+  const applyHostCallMedia = (callType: CallType) => {
+    if (!engineRef.current) {
+      return;
+    }
+
+    if (!hostMediaBeforeCallRef.current) {
+      hostMediaBeforeCallRef.current = {
+        isMicOn,
+        isCameraOn,
+      };
+    }
+
+    setIsMicOn(false);
+
+    if (callType === 'audio') {
+      setIsCameraOn(true);
+      engineRef.current.muteLocalAudioStream(true);
+      engineRef.current.muteLocalVideoStream(false);
+      return;
+    }
+
+    setIsCameraOn(false);
+    engineRef.current.muteLocalAudioStream(true);
+    engineRef.current.muteLocalVideoStream(true);
+  };
+
+  const restoreHostMedia = () => {
+    if (!engineRef.current || !hostMediaBeforeCallRef.current) {
+      return;
+    }
+
+    const previous = hostMediaBeforeCallRef.current;
+    engineRef.current.muteLocalAudioStream(!previous.isMicOn);
+    engineRef.current.muteLocalVideoStream(!previous.isCameraOn);
+    setIsMicOn(previous.isMicOn);
+    setIsCameraOn(previous.isCameraOn);
+    hostMediaBeforeCallRef.current = null;
+  };
 
   // 🎥 Preview
   const startPreview = () => {
@@ -46,12 +186,20 @@ export const useLiveStream = () => {
 
     const nextChannelId = channelId.trim() || DEFAULT_CHANNEL;
     setIsHost(nextIsHost);
+    setIsMicOn(nextIsHost);
+    setIsCameraOn(nextIsHost);
     setChannelId(nextChannelId);
     setActiveChannelId(nextChannelId);
     setErrorMessage(null);
     setRemoteUid(null);
     setUsers([]);
     setSeconds(0);
+    setIncomingCall(null);
+    setOutgoingCall(null);
+    setActiveCall(null);
+    setCallNotice(null);
+    dataStreamIdRef.current = null;
+    hostMediaBeforeCallRef.current = null;
 
     if (nextIsHost) {
       setIsMicOn(true);
@@ -63,9 +211,7 @@ export const useLiveStream = () => {
 
     const joinResult = engineRef.current?.joinChannel(TOKEN, nextChannelId, 0, {
       channelProfile: ChannelProfileType.ChannelProfileLiveBroadcasting,
-      clientRoleType: nextIsHost
-        ? ClientRoleType.ClientRoleBroadcaster
-        : ClientRoleType.ClientRoleAudience,
+      clientRoleType: ClientRoleType.ClientRoleBroadcaster,
       publishCameraTrack: nextIsHost,
       publishMicrophoneTrack: nextIsHost,
       autoSubscribeAudio: true,
@@ -84,9 +230,15 @@ export const useLiveStream = () => {
   const leave = () => {
     engineRef.current?.leaveChannel();
     stopPreview();
+    restoreHostMedia();
+    dataStreamIdRef.current = null;
     setRemoteUid(null);
     setUsers([]);
     setSeconds(0);
+    setIncomingCall(null);
+    setOutgoingCall(null);
+    setActiveCall(null);
+    setCallNotice(null);
   };
 
   // 🎙 Mic
@@ -106,6 +258,161 @@ export const useLiveStream = () => {
   // 🔄 Flip Camera
   const switchCamera = () => {
     engineRef.current?.switchCamera();
+  };
+
+  const startCall = (callType: CallType) => {
+    if (!isJoined || isHost) {
+      return;
+    }
+
+    const callId = createCallId();
+    const session: CallSession = {
+      callId,
+      callType,
+      fromRole: 'viewer',
+      status: 'calling',
+    };
+
+    setOutgoingCall(session);
+    setCallNotice(
+      `${callType === 'audio' ? 'Audio' : 'Video'} call request sent to host`,
+    );
+    sendSignal({
+      type: 'call-request',
+      callId,
+      callType,
+      fromRole: 'viewer',
+    });
+  };
+
+  const acceptIncomingCall = () => {
+    if (!incomingCall) {
+      return;
+    }
+
+    const acceptedCall = {
+      ...incomingCall,
+      status: 'connected' as const,
+    };
+
+    setActiveCall(acceptedCall);
+    setIncomingCall(null);
+    setCallNotice(
+      `${acceptedCall.callType === 'audio' ? 'Audio' : 'Video'} call connected`,
+    );
+    applyHostCallMedia(acceptedCall.callType);
+    sendSignal({
+      type: 'call-accepted',
+      callId: acceptedCall.callId,
+      callType: acceptedCall.callType,
+      fromRole: 'host',
+    });
+  };
+
+  const rejectIncomingCall = () => {
+    if (!incomingCall) {
+      return;
+    }
+
+    const rejectedCall = {
+      ...incomingCall,
+      status: 'rejected' as const,
+    };
+
+    setCallNotice(
+      `${rejectedCall.callType === 'audio' ? 'Audio' : 'Video'} call declined`,
+    );
+    setIncomingCall(null);
+    sendSignal({
+      type: 'call-rejected',
+      callId: rejectedCall.callId,
+      callType: rejectedCall.callType,
+      fromRole: 'host',
+    });
+  };
+
+  const endCall = () => {
+    if (!activeCall && !outgoingCall && !incomingCall) {
+      return;
+    }
+
+    const callToEnd = activeCall ?? outgoingCall ?? incomingCall;
+
+    if (callToEnd) {
+      sendSignal({
+        type: 'call-ended',
+        callId: callToEnd.callId,
+        callType: callToEnd.callType,
+        fromRole: isHost ? 'host' : 'viewer',
+      });
+    }
+
+    restoreHostMedia();
+    setActiveCall(null);
+    setOutgoingCall(null);
+    setIncomingCall(null);
+    setCallNotice('Call ended');
+  };
+
+  const handleIncomingSignal = (signal: CallSignal) => {
+    if (signal.type === 'call-request') {
+      if (isHostRef.current) {
+        setIncomingCall({
+          callId: signal.callId,
+          callType: signal.callType,
+          fromRole: signal.fromRole,
+          status: 'ringing',
+        });
+        setCallNotice(
+          `Incoming ${signal.callType === 'audio' ? 'audio' : 'video'} call`,
+        );
+      }
+
+      return;
+    }
+
+    if (isHostRef.current) {
+      return;
+    }
+
+    if (
+      outgoingCallRef.current?.callId !== signal.callId &&
+      activeCallRef.current?.callId !== signal.callId
+    ) {
+      return;
+    }
+
+    if (signal.type === 'call-accepted') {
+      const connectedCall = {
+        callId: signal.callId,
+        callType: signal.callType,
+        fromRole: signal.fromRole,
+        status: 'connected' as const,
+      };
+
+      setOutgoingCall(null);
+      setActiveCall(connectedCall);
+      setCallNotice(
+        `${signal.callType === 'audio' ? 'Audio' : 'Video'} call connected`,
+      );
+      return;
+    }
+
+    if (signal.type === 'call-rejected') {
+      setOutgoingCall(prev =>
+        prev?.callId === signal.callId
+          ? { ...prev, status: 'rejected' }
+          : prev,
+      );
+      setCallNotice('Host declined the call');
+      return;
+    }
+
+    if (signal.type === 'call-ended') {
+      setOutgoingCall(null);
+      setActiveCall(null);
+      setCallNotice('Call ended');
+    }
   };
 
   // ⏱ Timer
@@ -150,6 +457,7 @@ export const useLiveStream = () => {
           setIsJoined(true);
           setUsers([0]);
           setErrorMessage(null);
+          ensureDataStream();
         },
 
         onUserJoined: (_, uid) => {
@@ -167,6 +475,25 @@ export const useLiveStream = () => {
           setRemoteUid(null);
           setUsers([]);
           setSeconds(0);
+          setIncomingCall(null);
+          setOutgoingCall(null);
+          setActiveCall(null);
+          setCallNotice(null);
+          dataStreamIdRef.current = null;
+          restoreHostMedia();
+        },
+
+        onStreamMessage: (_, senderUid, _streamId, data) => {
+          if (senderUid === 0 || !data?.length) {
+            return;
+          }
+
+          try {
+            const signal = decodeSignal(data);
+            handleIncomingSignal(signal);
+          } catch {
+            setErrorMessage('Received an invalid call signal.');
+          }
         },
 
         onError: (err, msg) => {
@@ -225,5 +552,14 @@ export const useLiveStream = () => {
     toggleMic,
     toggleCamera,
     switchCamera,
+
+    incomingCall,
+    outgoingCall,
+    activeCall,
+    callNotice,
+    startCall,
+    acceptIncomingCall,
+    rejectIncomingCall,
+    endCall,
   };
 };

@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   StatusBar,
   StyleSheet,
   Text,
@@ -26,10 +27,16 @@ const LiveStreamScreen = () => {
     userCount,
     time,
     isMicOn,
-    isCameraOn,
     toggleMic,
-    toggleCamera,
     switchCamera,
+    incomingCall,
+    outgoingCall,
+    activeCall,
+    callNotice,
+    startCall,
+    acceptIncomingCall,
+    rejectIncomingCall,
+    endCall,
   } = useLiveStream();
 
   return (
@@ -70,11 +77,48 @@ const LiveStreamScreen = () => {
         <View style={styles.viewer}>
           <Text style={styles.viewerText}>
             {isJoined
-              ? `${isHost ? 'Host' : 'Guest'} • ${activeChannelId}`
+              ? `${isHost ? 'Host' : 'Viewer'} • ${activeChannelId}`
               : `Viewers ${userCount}`}
           </Text>
         </View>
       </View>
+
+      {callNotice ? (
+        <View style={styles.callNotice}>
+          <Text style={styles.callNoticeText}>{callNotice}</Text>
+        </View>
+      ) : null}
+
+      {incomingCall && isHost ? (
+        <View style={styles.incomingOverlay}>
+          <View style={styles.incomingCard}>
+            <Text style={styles.incomingLabel}>Incoming Call</Text>
+            <Text style={styles.incomingTitle}>
+              {incomingCall.callType === 'audio' ? 'Audio call' : 'Video call'}
+            </Text>
+            <Text style={styles.incomingText}>
+              Viewer is requesting a {incomingCall.callType} call on{' '}
+              {activeChannelId}.
+            </Text>
+
+            <View style={styles.incomingActions}>
+              <TouchableOpacity
+                style={[styles.incomingBtn, styles.declineBtn]}
+                onPress={rejectIncomingCall}
+              >
+                <Text style={styles.btnText}>Decline</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.incomingBtn, styles.acceptBtn]}
+                onPress={acceptIncomingCall}
+              >
+                <Text style={styles.btnText}>Accept</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       {/* 🎛 HOST CONTROLS */}
       {isJoined && isHost && (
@@ -109,7 +153,7 @@ const LiveStreamScreen = () => {
             />
 
             <Text style={styles.helper}>
-              Hosts create the stream with this ID. Guests join using the same
+              Hosts create the stream with this ID. Viewers join using the same
               ID.
             </Text>
 
@@ -129,7 +173,7 @@ const LiveStreamScreen = () => {
                 style={[styles.btn, styles.guestBtn]}
                 onPress={joinAsGuest}
               >
-                <Text style={styles.btnText}>Join as Guest</Text>
+                <Text style={styles.btnText}>Join as Viewer</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -137,14 +181,58 @@ const LiveStreamScreen = () => {
           <View style={styles.liveCard}>
             <View style={styles.liveMeta}>
               <Text style={styles.liveMetaLabel}>
-                {isHost ? 'Hosting' : 'Watching'}
+                {isHost ? 'Hosting' : 'Viewing'}
               </Text>
               <Text style={styles.liveMetaValue}>{activeChannelId}</Text>
             </View>
 
+            {outgoingCall && !isHost ? (
+              <View style={styles.callState}>
+                <ActivityIndicator color="#38BDF8" />
+                <Text style={styles.callStateText}>
+                  Calling host with {outgoingCall.callType} call...
+                </Text>
+              </View>
+            ) : activeCall && !isHost ? (
+              <View style={styles.callState}>
+                <Text style={styles.callStateText}>
+                  {activeCall.callType === 'audio'
+                    ? 'Audio call connected'
+                    : 'Video call connected'}
+                </Text>
+              </View>
+            ) : null}
+
             {errorMessage ? (
               <Text style={styles.errorText}>{errorMessage}</Text>
             ) : null}
+
+            {!isHost && isJoined && !outgoingCall && !activeCall ? (
+              <View style={styles.callActions}>
+                <Text style={styles.callTitle}>Call host</Text>
+                <View style={styles.callButtonRow}>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.audioBtn]}
+                    onPress={() => startCall('audio')}
+                  >
+                    <Text style={styles.btnText}>Audio Call</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.btn, styles.videoBtn]}
+                    onPress={() => startCall('video')}
+                  >
+                    <Text style={styles.btnText}>Video Call</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+
+            {(incomingCall || outgoingCall || activeCall) && (
+              <TouchableOpacity style={styles.endCall} onPress={endCall}>
+                <Text style={styles.btnText}>End Call</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={styles.end} onPress={leave}>
               <Text style={styles.btnText}>
@@ -217,6 +305,84 @@ const styles = StyleSheet.create({
   },
 
   viewerText: { color: '#E2E8F0', fontWeight: '600' },
+
+  callNotice: {
+    position: 'absolute',
+    top: 98,
+    left: 16,
+    right: 16,
+    backgroundColor: '#0F172AE6',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+
+  callNoticeText: {
+    color: '#E2E8F0',
+    fontWeight: '600',
+  },
+
+  incomingOverlay: {
+    position: 'absolute',
+    top: '28%',
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+  },
+
+  incomingCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#020617F2',
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 20,
+    gap: 12,
+  },
+
+  incomingLabel: {
+    color: '#38BDF8',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+
+  incomingTitle: {
+    color: '#F8FAFC',
+    fontSize: 24,
+    fontWeight: '800',
+  },
+
+  incomingText: {
+    color: '#CBD5E1',
+    lineHeight: 20,
+  },
+
+  incomingActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+
+  incomingBtn: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  acceptBtn: {
+    backgroundColor: '#10B981',
+  },
+
+  declineBtn: {
+    backgroundColor: '#EF4444',
+  },
 
   controls: {
     position: 'absolute',
@@ -312,6 +478,49 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1E293B',
     gap: 14,
+  },
+
+  callActions: {
+    gap: 10,
+  },
+
+  callTitle: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  callButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+
+  audioBtn: {
+    backgroundColor: '#0EA5E9',
+  },
+
+  videoBtn: {
+    backgroundColor: '#8B5CF6',
+  },
+
+  callState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 2,
+  },
+
+  callStateText: {
+    color: '#E2E8F0',
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+
+  endCall: {
+    backgroundColor: '#F97316',
+    paddingVertical: 16,
+    borderRadius: 18,
+    alignItems: 'center',
   },
 
   liveMeta: {
