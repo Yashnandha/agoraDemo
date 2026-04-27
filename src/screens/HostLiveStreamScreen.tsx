@@ -70,7 +70,11 @@ const HostLiveStreamScreen = ({ onBack }: Props) => {
           </View>
 
           <Text style={styles.meta}>
-            {isJoined ? `Viewers ${userCount}` : 'Host only'}
+            {isJoined
+              ? remoteUid
+                ? `Viewer ID ${remoteUid}`
+                : `Viewers ${userCount}`
+              : 'Host only'}
           </Text>
         </View>
 

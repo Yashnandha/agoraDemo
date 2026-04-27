@@ -88,7 +88,9 @@ const LiveStreamScreen = () => {
         <View style={styles.viewer}>
           <Text style={styles.viewerText}>
             {isJoined
-              ? `${isHost ? 'Host' : 'Viewer'} • ${activeChannelId}`
+              ? isHost && remoteUid
+                ? `Viewer ID • ${remoteUid}`
+                : `${isHost ? 'Host' : 'Viewer'} • ${activeChannelId}`
               : `Viewers ${userCount}`}
           </Text>
         </View>

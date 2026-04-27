@@ -169,6 +169,8 @@ export const useLiveStream = () => {
     }
 
     viewerCallModeRef.current = true;
+    engineRef.current.enableLocalAudio(true);
+    engineRef.current.muteLocalAudioStream(false);
     // Keep remote audio available for the private call; only suppress video
     // so the viewer flow can switch away from the live stream view cleanly.
     engineRef.current.muteAllRemoteVideoStreams(true);
@@ -180,6 +182,7 @@ export const useLiveStream = () => {
     }
 
     viewerCallModeRef.current = false;
+    engineRef.current.muteLocalAudioStream(true);
     engineRef.current.muteAllRemoteVideoStreams(false);
   };
 
