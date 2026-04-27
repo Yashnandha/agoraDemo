@@ -176,13 +176,24 @@ export const useLiveStream = () => {
     }
 
     viewerCallModeRef.current = true;
-    // Publish viewer's tracks so host can hear/see them during the call.
+
+    if (callType === 'video') {
+      // Enable video engine + capture so PiP self-view renders.
+      engineRef.current.enableVideo();
+      engineRef.current.startPreview();
+    }
+
+    // Publish viewer's tracks so host can hear/see them.
     engineRef.current.updateChannelMediaOptions({
       publishMicrophoneTrack: true,
       publishCameraTrack: callType === 'video',
     });
-    // For audio calls suppress all remote video (not needed).
-    // For video calls keep remote video so the caller can see the host.
+
+    // Sync UI toggle state.
+    setIsMicOn(true);
+    setIsCameraOn(callType === 'video');
+
+    // For audio calls suppress remote video (not needed).
     if (callType === 'audio') {
       engineRef.current.muteAllRemoteVideoStreams(true);
     }
@@ -194,11 +205,17 @@ export const useLiveStream = () => {
     }
 
     viewerCallModeRef.current = false;
-    // Stop publishing viewer's tracks — back to audience-only mode.
+
+    // Stop publishing — back to silent audience mode.
     engineRef.current.updateChannelMediaOptions({
       publishMicrophoneTrack: false,
       publishCameraTrack: false,
     });
+    engineRef.current.stopPreview();
+
+    setIsMicOn(false);
+    setIsCameraOn(false);
+
     engineRef.current.muteAllRemoteVideoStreams(false);
   };
 

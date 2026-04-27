@@ -8,14 +8,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { RtcSurfaceView } from 'react-native-agora';
 import { useLiveStream } from './useLiveStream';
 
-type Props = {
-  onBack?: () => void;
-};
+type Props = { onBack?: () => void };
 
-const ViewerLiveStreamScreen = ({ onBack }: Props) => {
+export default function ViewerLiveStreamScreen({ onBack }: Props) {
   const {
     isJoined,
     remoteUid,
@@ -28,7 +27,10 @@ const ViewerLiveStreamScreen = ({ onBack }: Props) => {
     leave,
     userCount,
     time,
-    incomingCall,
+    isMicOn,
+    isCameraOn,
+    toggleMic,
+    toggleCamera,
     outgoingCall,
     activeCall,
     callNotice,
@@ -36,338 +38,436 @@ const ViewerLiveStreamScreen = ({ onBack }: Props) => {
     endCall,
   } = useLiveStream();
 
-  const handleBack = () => {
+  const handleLeave = () => {
     leave();
     onBack?.();
   };
 
+  const isVideoCall = activeCall?.callType === 'video';
+  const isCallActive = !!activeCall;
+  const isWaiting = !!outgoingCall && !activeCall;
+
   return (
-    <View style={styles.safe}>
-      <StatusBar barStyle="light-content" />
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      <View style={styles.container}>
-        {isJoined && remoteUid ? (
-          <RtcSurfaceView canvas={{ uid: remoteUid }} style={styles.video} />
-        ) : (
-          <View style={styles.hero}>
-            <Text style={styles.label}>Viewer Lounge</Text>
-            <Text style={styles.title}>Join the stream as a viewer</Text>
-            <Text style={styles.text}>
-              Watch the host, follow the live status, and request a private
-              audio or video call.
-            </Text>
-          </View>
-        )}
+      {/* ── Video layer ── */}
+      {isJoined && remoteUid ? (
+        <>
+          {/* Main: always show host video */}
+          <RtcSurfaceView canvas={{ uid: remoteUid }} style={s.fullVideo} />
+          {/* PiP: own camera during video call */}
+          {isVideoCall && (
+            <View style={s.pip}>
+              <RtcSurfaceView canvas={{ uid: 0 }} style={s.pipVideo} />
+            </View>
+          )}
+        </>
+      ) : (
+        <View style={s.darkBg} />
+      )}
 
-        <View style={styles.topBar}>
-          <View style={styles.pillRow}>
-            <Text style={styles.live}>{isJoined ? 'LIVE' : 'READY'}</Text>
-            <Text style={styles.timer}>{isJoined ? time : resolvedChannelId}</Text>
+      <View style={s.gradTop} pointerEvents="none" />
+      <View style={s.gradBottom} pointerEvents="none" />
+
+      <SafeAreaView style={s.overlay} edges={['top', 'bottom']}>
+
+        {/* ── Top bar ── */}
+        <View style={s.topBar}>
+          <View style={s.topLeft}>
+            <View style={[s.pill, isJoined && remoteUid ? s.pillLive : s.pillReady]}>
+              <Text style={s.pillLiveText}>{isJoined && remoteUid ? 'LIVE' : 'READY'}</Text>
+            </View>
+            <View style={s.pill}>
+              <Text style={s.pillText}>
+                {isJoined ? time : resolvedChannelId}
+              </Text>
+            </View>
           </View>
-          <Text style={styles.meta}>
-            {isJoined ? `Host • ${activeChannelId}` : `Viewers ${userCount}`}
-          </Text>
+          <View style={s.topRight}>
+            {isJoined && (
+              <View style={s.pill}>
+                <Text style={s.pillText}>{activeChannelId}</Text>
+              </View>
+            )}
+            <TouchableOpacity style={s.closeBtn} onPress={handleLeave}>
+              <Text style={s.closeBtnText}>✕</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
+        {/* ── Notice toast ── */}
         {callNotice ? (
-          <View style={styles.notice}>
-            <Text style={styles.noticeText}>{callNotice}</Text>
+          <View style={s.toast}>
+            <Text style={s.toastText}>{callNotice}</Text>
           </View>
         ) : null}
 
-        <View style={styles.bottom}>
-          {!isJoined ? (
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Live ID</Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={setChannelId}
-                placeholder="Enter stream ID"
-                placeholderTextColor="#7C8596"
-                style={styles.input}
-                value={channelId}
-              />
+        {/* ── Pre-join card ── */}
+        {!isJoined && (
+          <View style={s.preJoin}>
+            <Text style={s.preLabel}>Viewer Lounge</Text>
+            <Text style={s.preTitle}>Join the live</Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setChannelId}
+              placeholder="Enter stream ID"
+              placeholderTextColor="#475569"
+              style={s.input}
+              value={channelId}
+            />
+            {errorMessage ? (
+              <Text style={s.errorText}>{errorMessage}</Text>
+            ) : null}
+            <TouchableOpacity style={s.joinBtn} onPress={joinAsGuest}>
+              <Text style={s.joinBtnText}>Watch Live</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-              <Text style={styles.helper}>
-                Viewer page only joins as audience. Use the host page to start
-                the broadcast.
+        {/* ── Waiting for host placeholder ── */}
+        {isJoined && !remoteUid && !isCallActive && !isWaiting && (
+          <View style={s.waitingCenter}>
+            <ActivityIndicator color="#fff" size="large" />
+            <Text style={s.waitingText}>Waiting for host…</Text>
+          </View>
+        )}
+
+        {/* ── Outgoing call waiting overlay ── */}
+        {isWaiting && (
+          <View style={s.outgoingOverlay}>
+            <View style={s.outgoingCard}>
+              <ActivityIndicator color="#fff" size="large" />
+              <Text style={s.outgoingTitle}>
+                {outgoingCall?.callType === 'video' ? 'Video' : 'Audio'} call request sent
               </Text>
-
-              {errorMessage ? (
-                <Text style={styles.errorText}>{errorMessage}</Text>
-              ) : null}
-
-              <TouchableOpacity
-                style={[styles.button, styles.viewerButton]}
-                onPress={joinAsGuest}
-              >
-                <Text style={styles.buttonText}>Join as Viewer</Text>
+              <Text style={s.outgoingSub}>Waiting for host to accept…</Text>
+              <TouchableOpacity style={s.cancelBtn} onPress={endCall}>
+                <Text style={s.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
             </View>
-          ) : (
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Viewer Controls</Text>
-              {activeCall ? (
-                <Text style={styles.helper}>
-                  {activeCall.callType === 'audio'
-                    ? 'Audio call connected.'
-                    : 'Video call connected.'}
+          </View>
+        )}
+
+        {/* ── Bottom controls ── */}
+        {isJoined && !isWaiting && (
+          <View style={s.bottomBar}>
+
+            {/* Active call controls */}
+            {isCallActive && (
+              <>
+                <Text style={s.activeCallLabel}>
+                  {activeCall?.callType === 'video' ? 'Video' : 'Audio'} call connected
                 </Text>
-              ) : outgoingCall ? (
-                <View style={styles.row}>
-                  <ActivityIndicator color="#38BDF8" />
-                  <Text style={styles.helper}>
-                    Sending {outgoingCall.callType} call request to host...
-                  </Text>
+                <View style={s.controlsShelf}>
+                  {/* Mic */}
+                  <View style={s.ctrlItem}>
+                    <TouchableOpacity
+                      style={[s.ctrlCircle, !isMicOn && s.ctrlCircleOff]}
+                      onPress={toggleMic}
+                    >
+                      <Text style={s.ctrlSymbol}>{isMicOn ? '♦' : '⊗'}</Text>
+                    </TouchableOpacity>
+                    <Text style={s.ctrlLabel}>{isMicOn ? 'Mic' : 'Muted'}</Text>
+                  </View>
+
+                  {/* Camera (video call only) */}
+                  {isVideoCall && (
+                    <View style={s.ctrlItem}>
+                      <TouchableOpacity
+                        style={[s.ctrlCircle, !isCameraOn && s.ctrlCircleOff]}
+                        onPress={toggleCamera}
+                      >
+                        <Text style={s.ctrlSymbol}>{isCameraOn ? '■' : '⊟'}</Text>
+                      </TouchableOpacity>
+                      <Text style={s.ctrlLabel}>{isCameraOn ? 'Camera' : 'Off'}</Text>
+                    </View>
+                  )}
+
+                  {/* End call */}
+                  <View style={s.ctrlItem}>
+                    <TouchableOpacity style={[s.ctrlCircle, s.ctrlEndCall]} onPress={endCall}>
+                      <Text style={s.ctrlSymbol}>✕</Text>
+                    </TouchableOpacity>
+                    <Text style={s.ctrlLabel}>End Call</Text>
+                  </View>
                 </View>
-              ) : (
-                <Text style={styles.helper}>
-                  Request a private call when you want one-on-one support.
-                </Text>
-              )}
+              </>
+            )}
 
-              {incomingCall ? (
-                <Text style={styles.helper}>
-                  Incoming host response: {incomingCall.callType} call.
-                </Text>
-              ) : null}
-
-              {errorMessage ? (
-                <Text style={styles.errorText}>{errorMessage}</Text>
-              ) : null}
-
-              {!outgoingCall && !activeCall ? (
-                <View style={styles.callRow}>
+            {/* Call initiation (no active/outgoing call) */}
+            {!isCallActive && (
+              <View style={s.callInitRow}>
+                <Text style={s.callInitLabel}>Call the host</Text>
+                <View style={s.callInitBtns}>
                   <TouchableOpacity
-                    style={[styles.button, styles.audioButton]}
+                    style={[s.callTypeBtn, s.audioCallBtn]}
                     onPress={() => startCall('audio')}
                   >
-                    <Text style={styles.buttonText}>Audio Call</Text>
+                    <Text style={s.callTypeBtnText}>Audio Call</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.button, styles.videoButton]}
+                    style={[s.callTypeBtn, s.videoCallBtn]}
                     onPress={() => startCall('video')}
                   >
-                    <Text style={styles.buttonText}>Video Call</Text>
+                    <Text style={s.callTypeBtnText}>Video Call</Text>
                   </TouchableOpacity>
                 </View>
-              ) : null}
-
-              {(incomingCall || outgoingCall || activeCall) && (
-                <TouchableOpacity style={styles.endCall} onPress={endCall}>
-                  <Text style={styles.buttonText}>End Call</Text>
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity style={styles.endButton} onPress={leave}>
-                <Text style={styles.buttonText}>Exit Live</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {onBack ? (
-            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Text style={styles.backText}>Back to launcher</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </View>
+              </View>
+            )}
+          </View>
+        )}
+      </SafeAreaView>
     </View>
   );
-};
+}
 
-export default ViewerLiveStreamScreen;
+const CTRL_SIZE = 62;
+const PIP_W = 110;
+const PIP_H = 150;
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: '#050816',
-  },
-  container: {
-    flex: 1,
-  },
-  hero: {
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#000' },
+
+  fullVideo: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  darkBg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0a0a0f' },
+
+  pip: {
     position: 'absolute',
-    top: 64,
-    left: 16,
-    right: 16,
-    zIndex: 2,
-    gap: 10,
+    top: 110,
+    right: 14,
+    width: PIP_W,
+    height: PIP_H,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.35)',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    elevation: 10,
   },
-  label: {
-    color: '#38BDF8',
-    fontSize: 13,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+  pipVideo: { flex: 1 },
+
+  gradTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 160,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 1,
   },
-  title: {
-    color: '#F8FAFC',
-    fontSize: 32,
-    fontWeight: '800',
-    lineHeight: 38,
+  gradBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 240,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    zIndex: 1,
   },
-  text: {
-    color: '#CBD5E1',
-    lineHeight: 20,
-    maxWidth: 420,
+
+  overlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 5,
   },
-  video: {
-    flex: 1,
-  },
+
+  // Top bar
   topBar: {
-    position: 'absolute',
-    top: 18,
-    left: 16,
-    right: 16,
-    zIndex: 3,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 8,
   },
-  pillRow: {
-    flexDirection: 'row',
+  topLeft: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  topRight: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+
+  pill: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  pillLive: { backgroundColor: '#E1306C' },
+  pillReady: { backgroundColor: 'rgba(80,80,80,0.7)' },
+  pillLiveText: { color: '#fff', fontWeight: '800', fontSize: 12, letterSpacing: 1 },
+  pillText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  // Notice toast
+  toast: {
+    marginHorizontal: 14,
+    marginTop: 10,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    alignSelf: 'flex-start',
+  },
+  toastText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+
+  // Pre-join
+  preJoin: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 14,
+  },
+  preLabel: {
+    color: '#818CF8',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+  },
+  preTitle: { color: '#fff', fontSize: 36, fontWeight: '800', lineHeight: 42 },
+  input: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    color: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  errorText: { color: '#f87171', fontSize: 13 },
+  joinBtn: {
+    backgroundColor: '#818CF8',
+    borderRadius: 14,
+    paddingVertical: 18,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  joinBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+
+  // Waiting for host
+  waitingCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  waitingText: { color: 'rgba(255,255,255,0.6)', fontSize: 16 },
+
+  // Outgoing call waiting
+  outgoingOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  outgoingCard: {
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 32,
+  },
+  outgoingTitle: { color: '#fff', fontSize: 20, fontWeight: '700', textAlign: 'center' },
+  outgoingSub: { color: 'rgba(255,255,255,0.55)', fontSize: 15, textAlign: 'center' },
+  cancelBtn: {
+    marginTop: 12,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  cancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+
+  // Bottom bar
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingBottom: 12,
+    paddingHorizontal: 14,
     gap: 8,
   },
-  live: {
-    backgroundColor: '#F43F5E',
-    color: '#fff',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    overflow: 'hidden',
-    fontWeight: '800',
-  },
-  timer: {
-    color: '#fff',
-    backgroundColor: '#0F172ACC',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  meta: {
-    color: '#E2E8F0',
-    backgroundColor: '#0F172ACC',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    overflow: 'hidden',
+  activeCallLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
     fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 4,
   },
-  notice: {
-    position: 'absolute',
-    top: 72,
-    left: 16,
-    right: 16,
-    backgroundColor: '#0F172AE6',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    zIndex: 3,
-  },
-  noticeText: {
-    color: '#E2E8F0',
-    fontWeight: '600',
-  },
-  bottom: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 24,
-    gap: 12,
-    zIndex: 3,
-  },
-  panel: {
-    backgroundColor: '#020617E6',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    gap: 12,
-  },
-  panelTitle: {
-    color: '#F8FAFC',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  input: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    paddingHorizontal: 16,
+  controlsShelf: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 28,
     paddingVertical: 14,
-    fontSize: 16,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  helper: {
-    color: '#94A3B8',
-    fontSize: 13,
-    lineHeight: 18,
-    flexShrink: 1,
+  ctrlItem: { alignItems: 'center', gap: 6 },
+  ctrlCircle: {
+    width: CTRL_SIZE,
+    height: CTRL_SIZE,
+    borderRadius: CTRL_SIZE / 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
-  errorText: {
-    color: '#FCA5A5',
-    fontSize: 13,
-    lineHeight: 18,
+  ctrlCircleOff: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  callRow: {
-    flexDirection: 'row',
+  ctrlEndCall: { backgroundColor: '#EF4444' },
+  ctrlSymbol: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  ctrlLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '500' },
+
+  // Call initiation
+  callInitRow: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 24,
+    padding: 16,
     gap: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  row: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
+  callInitLabel: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
-  button: {
-    minHeight: 54,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 14,
+  callInitBtns: { flexDirection: 'row', gap: 10 },
+  callTypeBtn: {
     flex: 1,
-  },
-  viewerButton: {
-    backgroundColor: '#0EA5E9',
-    flex: 0,
-  },
-  audioButton: {
-    backgroundColor: '#0EA5E9',
-  },
-  videoButton: {
-    backgroundColor: '#8B5CF6',
-  },
-  endButton: {
-    backgroundColor: '#FF3B30',
-    minHeight: 54,
-    borderRadius: 18,
-    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 14,
     alignItems: 'center',
   },
-  endCall: {
-    backgroundColor: '#F97316',
-    minHeight: 54,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  backButton: {
-    alignSelf: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  backText: {
-    color: '#38BDF8',
-    fontWeight: '700',
-  },
+  audioCallBtn: { backgroundColor: '#0EA5E9' },
+  videoCallBtn: { backgroundColor: '#8B5CF6' },
+  callTypeBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
 });

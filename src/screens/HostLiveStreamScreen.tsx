@@ -7,17 +7,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { RtcSurfaceView } from 'react-native-agora';
 import { useLiveStream } from './useLiveStream';
 
-type Props = {
-  onBack?: () => void;
-};
+type Props = { onBack?: () => void };
 
-const HostLiveStreamScreen = ({ onBack }: Props) => {
+export default function HostLiveStreamScreen({ onBack }: Props) {
   const {
     isJoined,
-    isHost,
     remoteUid,
     channelId,
     setChannelId,
@@ -28,7 +26,9 @@ const HostLiveStreamScreen = ({ onBack }: Props) => {
     userCount,
     time,
     isMicOn,
+    isCameraOn,
     toggleMic,
+    toggleCamera,
     switchCamera,
     incomingCall,
     activeCall,
@@ -38,403 +38,425 @@ const HostLiveStreamScreen = ({ onBack }: Props) => {
     endCall,
   } = useLiveStream();
 
-  const handleBack = () => {
+  const handleLeave = () => {
     leave();
     onBack?.();
   };
 
-  return (
-    <View style={styles.safe}>
-      <StatusBar barStyle="light-content" />
+  const isVideoCall = activeCall?.callType === 'video';
 
-      <View style={styles.container}>
-        {isJoined ? (
-          <View style={styles.videoWrap}>
-            <RtcSurfaceView canvas={{ uid: 0 }} style={styles.video} />
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+
+      {/* ── Video layer ── */}
+      {isJoined ? (
+        <>
+          {/* Main: viewer video during video call, else own camera */}
+          <RtcSurfaceView
+            canvas={{ uid: isVideoCall && remoteUid ? remoteUid : 0 }}
+            style={s.fullVideo}
+          />
+          {/* PiP: own camera while on video call */}
+          {isVideoCall && (
+            <View style={s.pip}>
+              <RtcSurfaceView canvas={{ uid: 0 }} style={s.pipVideo} />
+            </View>
+          )}
+        </>
+      ) : (
+        <View style={s.darkBg} />
+      )}
+
+      <View style={s.gradTop} pointerEvents="none" />
+      <View style={s.gradBottom} pointerEvents="none" />
+
+      <SafeAreaView style={s.overlay} edges={['top', 'bottom']}>
+
+        {/* ── Top bar ── */}
+        <View style={s.topBar}>
+          <View style={s.topLeft}>
+            {isJoined && (
+              <>
+                <View style={[s.pill, s.pillLive]}>
+                  <Text style={s.pillLiveText}>LIVE</Text>
+                </View>
+                <View style={s.pill}>
+                  <Text style={s.pillText}>{time}</Text>
+                </View>
+              </>
+            )}
           </View>
-        ) : (
-          <View style={styles.hero}>
-            <Text style={styles.label}>Host Studio</Text>
-            <Text style={styles.title}>Create the live room</Text>
-            <Text style={styles.text}>
-              Start the stream as host, then handle incoming viewer calls from
-              the same screen.
-            </Text>
+          <View style={s.topRight}>
+            {isJoined && (
+              <View style={s.pill}>
+                <Text style={s.pillText}>{userCount} watching</Text>
+              </View>
+            )}
+            <TouchableOpacity style={s.closeBtn} onPress={handleLeave}>
+              <Text style={s.closeBtnText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ── Notice toast ── */}
+        {callNotice ? (
+          <View style={s.toast}>
+            <Text style={s.toastText}>{callNotice}</Text>
+          </View>
+        ) : null}
+
+        {/* ── Pre-join card ── */}
+        {!isJoined && (
+          <View style={s.preJoin}>
+            <Text style={s.preLabel}>Host Studio</Text>
+            <Text style={s.preTitle}>Go live</Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setChannelId}
+              placeholder="Enter stream ID"
+              placeholderTextColor="#475569"
+              style={s.input}
+              value={channelId}
+            />
+            {errorMessage ? (
+              <Text style={s.errorText}>{errorMessage}</Text>
+            ) : null}
+            <TouchableOpacity style={s.goLiveBtn} onPress={joinAsHost}>
+              <Text style={s.goLiveBtnText}>Start Live</Text>
+            </TouchableOpacity>
           </View>
         )}
 
-        <View style={styles.topBar}>
-          <View style={styles.pillRow}>
-            <Text style={styles.live}>{isJoined ? 'LIVE' : 'READY'}</Text>
-            <Text style={styles.timer}>{isJoined ? time : '00:00'}</Text>
-          </View>
-
-          <Text style={styles.meta}>
-            {isJoined
-              ? remoteUid
-                ? `Viewer ID ${remoteUid}`
-                : `Viewers ${userCount}`
-              : 'Host only'}
-          </Text>
-        </View>
-
-        {callNotice ? (
-          <View style={styles.notice}>
-            <Text style={styles.noticeText}>{callNotice}</Text>
-          </View>
-        ) : null}
-
-        {incomingCall ? (
-          <View style={styles.overlay}>
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Incoming Call</Text>
-              <Text style={styles.cardTitle}>
-                {incomingCall.callType === 'audio' ? 'Audio call' : 'Video call'}
+        {/* ── Incoming call overlay ── */}
+        {incomingCall && (
+          <View style={s.incomingOverlay}>
+            <View style={s.incomingCard}>
+              <View style={s.callerCircle}>
+                <Text style={s.callerInitial}>V</Text>
+              </View>
+              <Text style={s.callerName}>Viewer</Text>
+              <Text style={s.callerType}>
+                Incoming {incomingCall.callType === 'video' ? 'video' : 'audio'} call
               </Text>
-              <Text style={styles.cardText}>
-                A viewer is requesting a {incomingCall.callType} call on{' '}
-                {activeChannelId}.
-              </Text>
-
-              <View style={styles.row}>
-                <TouchableOpacity
-                  style={[styles.button, styles.declineButton]}
-                  onPress={rejectIncomingCall}
-                >
-                  <Text style={styles.buttonText}>Decline</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.button, styles.acceptButton]}
-                  onPress={acceptIncomingCall}
-                >
-                  <Text style={styles.buttonText}>Accept</Text>
-                </TouchableOpacity>
+              <View style={s.callActionRow}>
+                <View style={s.callActionGroup}>
+                  <TouchableOpacity
+                    style={[s.callActionCircle, s.declineCircle]}
+                    onPress={rejectIncomingCall}
+                  >
+                    <Text style={s.callActionSymbol}>✕</Text>
+                  </TouchableOpacity>
+                  <Text style={s.callActionLabel}>Decline</Text>
+                </View>
+                <View style={s.callActionGroup}>
+                  <TouchableOpacity
+                    style={[s.callActionCircle, s.acceptCircle]}
+                    onPress={acceptIncomingCall}
+                  >
+                    <Text style={s.callActionSymbol}>✓</Text>
+                  </TouchableOpacity>
+                  <Text style={s.callActionLabel}>Accept</Text>
+                </View>
               </View>
             </View>
           </View>
-        ) : null}
+        )}
 
-        <View style={styles.bottom}>
-          {!isJoined ? (
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Live ID</Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={setChannelId}
-                placeholder="Enter stream ID"
-                placeholderTextColor="#7C8596"
-                style={styles.input}
-                value={channelId}
-              />
-
-              <Text style={styles.helper}>
-                This screen is host-only. Viewers should use the viewer page.
+        {/* ── Bottom controls ── */}
+        {isJoined && !incomingCall && (
+          <View style={s.bottomBar}>
+            {activeCall ? (
+              <Text style={s.activeCallLabel}>
+                {activeCall.callType === 'video' ? 'Video' : 'Audio'} call · {activeChannelId}
               </Text>
+            ) : null}
 
-              {errorMessage ? (
-                <Text style={styles.errorText}>{errorMessage}</Text>
-              ) : null}
+            <View style={s.controlsShelf}>
+              {/* Mic */}
+              <View style={s.ctrlItem}>
+                <TouchableOpacity
+                  style={[s.ctrlCircle, !isMicOn && s.ctrlCircleOff]}
+                  onPress={toggleMic}
+                >
+                  <Text style={s.ctrlSymbol}>{isMicOn ? '♦' : '⊗'}</Text>
+                </TouchableOpacity>
+                <Text style={s.ctrlLabel}>{isMicOn ? 'Mic' : 'Muted'}</Text>
+              </View>
 
-              <TouchableOpacity
-                style={[styles.button, styles.hostButton]}
-                onPress={joinAsHost}
-              >
-                <Text style={styles.buttonText}>Join as Host</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.panel}>
-              <Text style={styles.panelTitle}>Broadcast Controls</Text>
-              <Text style={styles.meta}>
-                {isHost ? 'Streaming as host' : `Viewing ${activeChannelId}`}
-              </Text>
+              {/* Camera */}
+              <View style={s.ctrlItem}>
+                <TouchableOpacity
+                  style={[s.ctrlCircle, !isCameraOn && s.ctrlCircleOff]}
+                  onPress={toggleCamera}
+                >
+                  <Text style={s.ctrlSymbol}>{isCameraOn ? '■' : '⊟'}</Text>
+                </TouchableOpacity>
+                <Text style={s.ctrlLabel}>{isCameraOn ? 'Camera' : 'Off'}</Text>
+              </View>
 
-              {remoteUid ? (
-                <Text style={styles.helper}>
-                  Viewer connected. Remote UID: {remoteUid}
-                </Text>
+              {/* Flip */}
+              <View style={s.ctrlItem}>
+                <TouchableOpacity style={s.ctrlCircle} onPress={switchCamera}>
+                  <Text style={s.ctrlSymbol}>↺</Text>
+                </TouchableOpacity>
+                <Text style={s.ctrlLabel}>Flip</Text>
+              </View>
+
+              {/* End call / End live */}
+              {activeCall ? (
+                <View style={s.ctrlItem}>
+                  <TouchableOpacity style={[s.ctrlCircle, s.ctrlEndCall]} onPress={endCall}>
+                    <Text style={s.ctrlSymbol}>✕</Text>
+                  </TouchableOpacity>
+                  <Text style={s.ctrlLabel}>End Call</Text>
+                </View>
               ) : (
-                <Text style={styles.helper}>Waiting for viewers to join.</Text>
+                <View style={s.ctrlItem}>
+                  <TouchableOpacity style={[s.ctrlCircle, s.ctrlEndStream]} onPress={handleLeave}>
+                    <Text style={s.ctrlSymbol}>■</Text>
+                  </TouchableOpacity>
+                  <Text style={s.ctrlLabel}>End Live</Text>
+                </View>
               )}
-
-              {errorMessage ? (
-                <Text style={styles.errorText}>{errorMessage}</Text>
-              ) : null}
-
-              <View style={styles.actionRow}>
-                <TouchableOpacity style={[styles.iconBtn]} onPress={toggleMic}>
-                  <Text style={styles.icon}>{isMicOn ? '🎙' : '🔇'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.iconBtn} onPress={switchCamera}>
-                  <Text style={styles.icon}>🔄</Text>
-                </TouchableOpacity>
-              </View>
-
-              {(incomingCall || activeCall) && (
-                <TouchableOpacity style={styles.endCall} onPress={endCall}>
-                  <Text style={styles.buttonText}>End Call</Text>
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity style={styles.endButton} onPress={leave}>
-                <Text style={styles.buttonText}>End Stream</Text>
-              </TouchableOpacity>
             </View>
-          )}
-
-          {onBack ? (
-            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <Text style={styles.backText}>Back to launcher</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      </View>
+          </View>
+        )}
+      </SafeAreaView>
     </View>
   );
-};
+}
 
-export default HostLiveStreamScreen;
+const CTRL_SIZE = 62;
+const PIP_W = 110;
+const PIP_H = 150;
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: '#050816',
-  },
-  container: {
-    flex: 1,
-  },
-  hero: {
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#000' },
+
+  fullVideo: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  darkBg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0a0a0f' },
+
+  pip: {
     position: 'absolute',
-    top: 64,
-    left: 16,
-    right: 16,
-    zIndex: 2,
-    gap: 10,
+    top: 110,
+    right: 14,
+    width: PIP_W,
+    height: PIP_H,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.35)',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    elevation: 10,
   },
-  label: {
-    color: '#38BDF8',
-    fontSize: 13,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+  pipVideo: { flex: 1 },
+
+  gradTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 180,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 1,
   },
-  title: {
-    color: '#F8FAFC',
-    fontSize: 32,
-    fontWeight: '800',
-    lineHeight: 38,
+  gradBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 220,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    zIndex: 1,
   },
-  text: {
-    color: '#CBD5E1',
-    lineHeight: 20,
-    maxWidth: 420,
+
+  overlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 5,
   },
-  videoWrap: {
-    flex: 1,
-  },
-  video: {
-    flex: 1,
-  },
+
+  // Top bar
   topBar: {
-    position: 'absolute',
-    top: 18,
-    left: 16,
-    right: 16,
-    zIndex: 3,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  pillRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  live: {
-    backgroundColor: '#F43F5E',
-    color: '#fff',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    overflow: 'hidden',
-    fontWeight: '800',
-  },
-  timer: {
-    color: '#fff',
-    backgroundColor: '#0F172ACC',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  meta: {
-    color: '#E2E8F0',
-    backgroundColor: '#0F172ACC',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    overflow: 'hidden',
-    fontWeight: '600',
-  },
-  notice: {
-    position: 'absolute',
-    top: 72,
-    left: 16,
-    right: 16,
-    backgroundColor: '#0F172AE6',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 16,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    zIndex: 3,
+    paddingTop: 8,
   },
-  noticeText: {
-    color: '#E2E8F0',
-    fontWeight: '600',
-  },
-  overlay: {
-    position: 'absolute',
-    top: '28%',
-    left: 16,
-    right: 16,
-    alignItems: 'center',
-    zIndex: 4,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 420,
-    backgroundColor: '#020617F2',
-    borderRadius: 28,
+  topLeft: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  topRight: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+
+  pill: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderWidth: 1,
-    borderColor: '#334155',
-    padding: 20,
-    gap: 12,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  cardLabel: {
-    color: '#38BDF8',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    fontWeight: '800',
+  pillLive: { backgroundColor: '#E1306C' },
+  pillLiveText: { color: '#fff', fontWeight: '800', fontSize: 12, letterSpacing: 1 },
+  pillText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  // Notice
+  toast: {
+    marginHorizontal: 14,
+    marginTop: 10,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    alignSelf: 'flex-start',
+  },
+  toastText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+
+  // Pre-join
+  preJoin: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 14,
+  },
+  preLabel: {
+    color: '#E1306C',
     fontSize: 12,
-  },
-  cardTitle: {
-    color: '#F8FAFC',
-    fontSize: 24,
     fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
-  cardText: {
-    color: '#CBD5E1',
-    lineHeight: 20,
+  preTitle: { color: '#fff', fontSize: 36, fontWeight: '800', lineHeight: 42 },
+  input: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    color: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    fontSize: 16,
+    fontWeight: '500',
   },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
+  errorText: { color: '#f87171', fontSize: 13 },
+  goLiveBtn: {
+    backgroundColor: '#E1306C',
+    borderRadius: 14,
+    paddingVertical: 18,
+    alignItems: 'center',
     marginTop: 4,
   },
-  button: {
-    minHeight: 54,
-    borderRadius: 18,
+  goLiveBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+
+  // Incoming call
+  incomingOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.72)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 14,
+    zIndex: 20,
   },
-  hostButton: {
-    backgroundColor: '#F97316',
+  incomingCard: {
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 32,
   },
-  acceptButton: {
-    backgroundColor: '#10B981',
-    flex: 1,
-  },
-  declineButton: {
-    backgroundColor: '#EF4444',
-    flex: 1,
-  },
-  endButton: {
-    backgroundColor: '#FF3B30',
-    minHeight: 54,
-    borderRadius: 18,
+  callerCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: '#5B4FCF',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.3)',
+    marginBottom: 8,
   },
-  endCall: {
-    backgroundColor: '#F97316',
-    minHeight: 54,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  bottom: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 24,
-    gap: 12,
-    zIndex: 3,
-  },
-  panel: {
-    backgroundColor: '#020617E6',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    gap: 12,
-  },
-  panelTitle: {
-    color: '#F8FAFC',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  input: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-  },
-  helper: {
-    color: '#94A3B8',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  errorText: {
-    color: '#FCA5A5',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  actionRow: {
+  callerInitial: { color: '#fff', fontSize: 40, fontWeight: '700' },
+  callerName: { color: '#fff', fontSize: 22, fontWeight: '700' },
+  callerType: { color: 'rgba(255,255,255,0.65)', fontSize: 15, marginBottom: 28 },
+
+  callActionRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 56,
+    marginTop: 8,
   },
-  iconBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#0F172ACC',
+  callActionGroup: { alignItems: 'center', gap: 10 },
+  callActionCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  declineCircle: { backgroundColor: '#EF4444' },
+  acceptCircle: { backgroundColor: '#22C55E' },
+  callActionSymbol: { color: '#fff', fontSize: 26, fontWeight: '700' },
+  callActionLabel: { color: '#fff', fontSize: 13, fontWeight: '600' },
+
+  // Bottom bar
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingBottom: 12,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  activeCallLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  controlsShelf: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 28,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  ctrlItem: { alignItems: 'center', gap: 6 },
+  ctrlCircle: {
+    width: CTRL_SIZE,
+    height: CTRL_SIZE,
+    borderRadius: CTRL_SIZE / 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255,255,255,0.2)',
   },
-  icon: {
-    color: '#fff',
-    fontSize: 18,
+  ctrlCircleOff: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  backButton: {
-    alignSelf: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  backText: {
-    color: '#38BDF8',
-    fontWeight: '700',
-  },
+  ctrlEndCall: { backgroundColor: '#EF4444' },
+  ctrlEndStream: { backgroundColor: '#EF4444' },
+  ctrlSymbol: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  ctrlLabel: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '500' },
 });
