@@ -36,6 +36,9 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
     callNotice,
     startCall,
     endCall,
+    isHostBusyOnCall,
+    hostBusyCallType,
+    isStreamEnded,
   } = useLiveStream();
 
   const handleLeave = () => {
@@ -47,16 +50,17 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
   const isCallActive = !!activeCall;
   const isWaiting = !!outgoingCall && !activeCall;
 
+  // Hide host video for bystanders during a video call (both streams muted)
+  const showHostVideo = remoteUid && !(isHostBusyOnCall && hostBusyCallType === 'video');
+
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* ── Video layer ── */}
-      {isJoined && remoteUid ? (
+      {isJoined && showHostVideo ? (
         <>
-          {/* Main: always show host video */}
-          <RtcSurfaceView canvas={{ uid: remoteUid }} style={s.fullVideo} />
-          {/* PiP: own camera during video call */}
+          <RtcSurfaceView canvas={{ uid: remoteUid! }} style={s.fullVideo} />
           {isVideoCall && (
             <View style={s.pip}>
               <RtcSurfaceView canvas={{ uid: 0 }} style={s.pipVideo} />
@@ -83,6 +87,12 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
                 {isJoined ? time : resolvedChannelId}
               </Text>
             </View>
+            {/* Audio call badge: host busy but video still showing */}
+            {isJoined && isHostBusyOnCall && hostBusyCallType === 'audio' && (
+              <View style={s.busyBadge}>
+                <Text style={s.busyBadgeText}>On Audio Call</Text>
+              </View>
+            )}
           </View>
           <View style={s.topRight}>
             {isJoined && (
@@ -126,15 +136,36 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
           </View>
         )}
 
-        {/* ── Waiting for host placeholder ── */}
-        {isJoined && !remoteUid && !isCallActive && !isWaiting && (
+        {/* ── Stream ended overlay ── */}
+        {isStreamEnded && (
+          <View style={s.streamEndedOverlay}>
+            <Text style={s.streamEndedIcon}>📡</Text>
+            <Text style={s.streamEndedTitle}>Stream has ended</Text>
+            <Text style={s.streamEndedSub}>The host has stopped the livestream</Text>
+            <TouchableOpacity style={s.streamEndedBtn} onPress={handleLeave}>
+              <Text style={s.streamEndedBtnText}>Leave</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Host busy on video call overlay (for bystanders) ── */}
+        {isJoined && isHostBusyOnCall && hostBusyCallType === 'video' && !isCallActive && !isStreamEnded && (
+          <View style={s.hostBusyOverlay}>
+            <Text style={s.hostBusyIcon}>📵</Text>
+            <Text style={s.hostBusyTitle}>Host is on a video call</Text>
+            <Text style={s.hostBusySub}>Livestream paused — back soon</Text>
+          </View>
+        )}
+
+        {/* ── Waiting for host ── */}
+        {isJoined && !remoteUid && !isCallActive && !isWaiting && !isStreamEnded && (
           <View style={s.waitingCenter}>
             <ActivityIndicator color="#fff" size="large" />
             <Text style={s.waitingText}>Waiting for host…</Text>
           </View>
         )}
 
-        {/* ── Outgoing call waiting overlay ── */}
+        {/* ── Outgoing call overlay ── */}
         {isWaiting && (
           <View style={s.outgoingOverlay}>
             <View style={s.outgoingCard}>
@@ -151,7 +182,7 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
         )}
 
         {/* ── Bottom controls ── */}
-        {isJoined && !isWaiting && (
+        {isJoined && !isWaiting && !isStreamEnded && (
           <View style={s.bottomBar}>
 
             {/* Active call controls */}
@@ -161,7 +192,6 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
                   {activeCall?.callType === 'video' ? 'Video' : 'Audio'} call connected
                 </Text>
                 <View style={s.controlsShelf}>
-                  {/* Mic */}
                   <View style={s.ctrlItem}>
                     <TouchableOpacity
                       style={[s.ctrlCircle, !isMicOn && s.ctrlCircleOff]}
@@ -172,7 +202,6 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
                     <Text style={s.ctrlLabel}>{isMicOn ? 'Mic' : 'Muted'}</Text>
                   </View>
 
-                  {/* Camera (video call only) */}
                   {isVideoCall && (
                     <View style={s.ctrlItem}>
                       <TouchableOpacity
@@ -185,7 +214,6 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
                     </View>
                   )}
 
-                  {/* End call */}
                   <View style={s.ctrlItem}>
                     <TouchableOpacity style={[s.ctrlCircle, s.ctrlEndCall]} onPress={endCall}>
                       <Text style={s.ctrlSymbol}>✕</Text>
@@ -196,20 +224,24 @@ export default function ViewerLiveStreamScreen({ onBack }: Props) {
               </>
             )}
 
-            {/* Call initiation (no active/outgoing call) */}
+            {/* Call initiation */}
             {!isCallActive && (
-              <View style={s.callInitRow}>
-                <Text style={s.callInitLabel}>Call the host</Text>
+              <View style={[s.callInitRow, isHostBusyOnCall && s.callInitRowDisabled]}>
+                <Text style={s.callInitLabel}>
+                  {isHostBusyOnCall ? 'Host is busy on a call' : 'Call the host'}
+                </Text>
                 <View style={s.callInitBtns}>
                   <TouchableOpacity
-                    style={[s.callTypeBtn, s.audioCallBtn]}
+                    style={[s.callTypeBtn, s.audioCallBtn, isHostBusyOnCall && s.callTypeBtnDisabled]}
                     onPress={() => startCall('audio')}
+                    disabled={isHostBusyOnCall}
                   >
                     <Text style={s.callTypeBtnText}>Audio Call</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[s.callTypeBtn, s.videoCallBtn]}
+                    style={[s.callTypeBtn, s.videoCallBtn, isHostBusyOnCall && s.callTypeBtnDisabled]}
                     onPress={() => startCall('video')}
+                    disabled={isHostBusyOnCall}
                   >
                     <Text style={s.callTypeBtnText}>Video Call</Text>
                   </TouchableOpacity>
@@ -284,7 +316,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 8,
   },
-  topLeft: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  topLeft: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
   topRight: { flexDirection: 'row', gap: 8, alignItems: 'center' },
 
   pill: {
@@ -299,6 +331,14 @@ const s = StyleSheet.create({
   pillReady: { backgroundColor: 'rgba(80,80,80,0.7)' },
   pillLiveText: { color: '#fff', fontWeight: '800', fontSize: 12, letterSpacing: 1 },
   pillText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+
+  busyBadge: {
+    backgroundColor: 'rgba(234,179,8,0.85)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  busyBadgeText: { color: '#000', fontWeight: '800', fontSize: 11, letterSpacing: 0.5 },
 
   closeBtn: {
     width: 36,
@@ -361,6 +401,39 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   joinBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+
+  // Stream ended overlay
+  streamEndedOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    zIndex: 30,
+  },
+  streamEndedIcon: { fontSize: 52 },
+  streamEndedTitle: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  streamEndedSub: { color: 'rgba(255,255,255,0.55)', fontSize: 15, textAlign: 'center', paddingHorizontal: 32 },
+  streamEndedBtn: {
+    marginTop: 20,
+    backgroundColor: '#818CF8',
+    borderRadius: 14,
+    paddingHorizontal: 40,
+    paddingVertical: 16,
+  },
+  streamEndedBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+
+  // Host busy overlay (video call)
+  hostBusyOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    zIndex: 15,
+  },
+  hostBusyIcon: { fontSize: 48 },
+  hostBusyTitle: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  hostBusySub: { color: 'rgba(255,255,255,0.55)', fontSize: 15 },
 
   // Waiting for host
   waitingCenter: {
@@ -453,6 +526,10 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
+  callInitRowDisabled: {
+    borderColor: 'rgba(255,165,0,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
   callInitLabel: {
     color: 'rgba(255,255,255,0.55)',
     fontSize: 13,
@@ -467,6 +544,7 @@ const s = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
   },
+  callTypeBtnDisabled: { opacity: 0.35 },
   audioCallBtn: { backgroundColor: '#0EA5E9' },
   videoCallBtn: { backgroundColor: '#8B5CF6' },
   callTypeBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },

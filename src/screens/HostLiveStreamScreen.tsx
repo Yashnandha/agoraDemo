@@ -22,7 +22,7 @@ export default function HostLiveStreamScreen({ onBack }: Props) {
     activeChannelId,
     errorMessage,
     joinAsHost,
-    leave,
+    endStream,
     userCount,
     time,
     isMicOn,
@@ -39,11 +39,12 @@ export default function HostLiveStreamScreen({ onBack }: Props) {
   } = useLiveStream();
 
   const handleLeave = () => {
-    leave();
+    endStream();
     onBack?.();
   };
 
   const isVideoCall = activeCall?.callType === 'video';
+  const isOnCall = !!activeCall;
 
   return (
     <View style={s.root}>
@@ -52,23 +53,28 @@ export default function HostLiveStreamScreen({ onBack }: Props) {
       {/* ── Video layer ── */}
       {isJoined ? (
         <>
-          {/* Main: viewer video during video call, else own camera */}
-          <RtcSurfaceView
-            canvas={{ uid: isVideoCall && remoteUid ? remoteUid : 0 }}
-            style={s.fullVideo}
-          />
-          {/* PiP: own camera while on video call */}
-          {isVideoCall && (
-            <View style={s.pip}>
-              <RtcSurfaceView canvas={{ uid: 0 }} style={s.pipVideo} />
-            </View>
+          {isOnCall ? (
+            // Call mode: show caller video (video call) or dark bg (audio call)
+            isVideoCall && remoteUid ? (
+              <>
+                <RtcSurfaceView canvas={{ uid: remoteUid }} style={s.fullVideo} />
+                <View style={s.pip}>
+                  <RtcSurfaceView canvas={{ uid: 0 }} style={s.pipVideo} />
+                </View>
+              </>
+            ) : (
+              <View style={s.callBg} />
+            )
+          ) : (
+            // Livestream mode: show own camera
+            <RtcSurfaceView canvas={{ uid: 0 }} style={s.fullVideo} />
           )}
         </>
       ) : (
         <View style={s.darkBg} />
       )}
 
-      <View style={s.gradTop} pointerEvents="none" />
+      <View style={[s.gradTop, isOnCall && s.gradTopCall]} pointerEvents="none" />
       <View style={s.gradBottom} pointerEvents="none" />
 
       <SafeAreaView style={s.overlay} edges={['top', 'bottom']}>
@@ -78,8 +84,8 @@ export default function HostLiveStreamScreen({ onBack }: Props) {
           <View style={s.topLeft}>
             {isJoined && (
               <>
-                <View style={[s.pill, s.pillLive]}>
-                  <Text style={s.pillLiveText}>LIVE</Text>
+                <View style={[s.pill, isOnCall ? s.pillCall : s.pillLive]}>
+                  <Text style={s.pillLiveText}>{isOnCall ? 'IN CALL' : 'LIVE'}</Text>
                 </View>
                 <View style={s.pill}>
                   <Text style={s.pillText}>{time}</Text>
@@ -88,12 +94,22 @@ export default function HostLiveStreamScreen({ onBack }: Props) {
             )}
           </View>
           <View style={s.topRight}>
-            {isJoined && (
+            {isJoined && !isOnCall && (
               <View style={s.pill}>
                 <Text style={s.pillText}>{userCount} watching</Text>
               </View>
             )}
-            <TouchableOpacity style={s.closeBtn} onPress={handleLeave}>
+            {isJoined && isOnCall && (
+              <View style={s.pill}>
+                <Text style={s.pillText}>
+                  {activeCall?.callType === 'video' ? 'Video' : 'Audio'} · {activeChannelId}
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity
+              style={s.closeBtn}
+              onPress={isOnCall ? endCall : handleLeave}
+            >
               <Text style={s.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -164,15 +180,60 @@ export default function HostLiveStreamScreen({ onBack }: Props) {
           </View>
         )}
 
-        {/* ── Bottom controls ── */}
-        {isJoined && !incomingCall && (
+        {/* ── Call UI (active call) ── */}
+        {isJoined && isOnCall && !incomingCall && (
           <View style={s.bottomBar}>
-            {activeCall ? (
-              <Text style={s.activeCallLabel}>
-                {activeCall.callType === 'video' ? 'Video' : 'Audio'} call · {activeChannelId}
-              </Text>
-            ) : null}
+            <View style={s.callerInfoRow}>
+              <View style={s.callerAvatarSmall}>
+                <Text style={s.callerAvatarText}>V</Text>
+              </View>
+              <View>
+                <Text style={s.callerInfoName}>Viewer</Text>
+                <Text style={s.callerInfoSub}>
+                  {activeCall?.callType === 'video' ? 'Video' : 'Audio'} call · {time}
+                </Text>
+              </View>
+            </View>
 
+            <View style={s.controlsShelf}>
+              {/* Mic */}
+              <View style={s.ctrlItem}>
+                <TouchableOpacity
+                  style={[s.ctrlCircle, !isMicOn && s.ctrlCircleOff]}
+                  onPress={toggleMic}
+                >
+                  <Text style={s.ctrlSymbol}>{isMicOn ? '♦' : '⊗'}</Text>
+                </TouchableOpacity>
+                <Text style={s.ctrlLabel}>{isMicOn ? 'Mic' : 'Muted'}</Text>
+              </View>
+
+              {/* Camera (video call only) */}
+              {isVideoCall && (
+                <View style={s.ctrlItem}>
+                  <TouchableOpacity
+                    style={[s.ctrlCircle, !isCameraOn && s.ctrlCircleOff]}
+                    onPress={toggleCamera}
+                  >
+                    <Text style={s.ctrlSymbol}>{isCameraOn ? '■' : '⊟'}</Text>
+                  </TouchableOpacity>
+                  <Text style={s.ctrlLabel}>{isCameraOn ? 'Camera' : 'Off'}</Text>
+                </View>
+              )}
+
+              {/* End call */}
+              <View style={s.ctrlItem}>
+                <TouchableOpacity style={[s.ctrlCircle, s.ctrlEndCall]} onPress={endCall}>
+                  <Text style={s.ctrlSymbol}>✕</Text>
+                </TouchableOpacity>
+                <Text style={s.ctrlLabel}>End Call</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* ── Livestream controls ── */}
+        {isJoined && !isOnCall && !incomingCall && (
+          <View style={s.bottomBar}>
             <View style={s.controlsShelf}>
               {/* Mic */}
               <View style={s.ctrlItem}>
@@ -204,22 +265,13 @@ export default function HostLiveStreamScreen({ onBack }: Props) {
                 <Text style={s.ctrlLabel}>Flip</Text>
               </View>
 
-              {/* End call / End live */}
-              {activeCall ? (
-                <View style={s.ctrlItem}>
-                  <TouchableOpacity style={[s.ctrlCircle, s.ctrlEndCall]} onPress={endCall}>
-                    <Text style={s.ctrlSymbol}>✕</Text>
-                  </TouchableOpacity>
-                  <Text style={s.ctrlLabel}>End Call</Text>
-                </View>
-              ) : (
-                <View style={s.ctrlItem}>
-                  <TouchableOpacity style={[s.ctrlCircle, s.ctrlEndStream]} onPress={handleLeave}>
-                    <Text style={s.ctrlSymbol}>■</Text>
-                  </TouchableOpacity>
-                  <Text style={s.ctrlLabel}>End Live</Text>
-                </View>
-              )}
+              {/* End live */}
+              <View style={s.ctrlItem}>
+                <TouchableOpacity style={[s.ctrlCircle, s.ctrlEndStream]} onPress={handleLeave}>
+                  <Text style={s.ctrlSymbol}>■</Text>
+                </TouchableOpacity>
+                <Text style={s.ctrlLabel}>End Live</Text>
+              </View>
             </View>
           </View>
         )}
@@ -237,6 +289,10 @@ const s = StyleSheet.create({
 
   fullVideo: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   darkBg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0a0a0f' },
+  callBg: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: '#0f0f1a',
+  },
 
   pip: {
     position: 'absolute',
@@ -265,6 +321,9 @@ const s = StyleSheet.create({
     height: 180,
     backgroundColor: 'rgba(0,0,0,0.5)',
     zIndex: 1,
+  },
+  gradTopCall: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
   },
   gradBottom: {
     position: 'absolute',
@@ -301,6 +360,7 @@ const s = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
   },
   pillLive: { backgroundColor: '#E1306C' },
+  pillCall: { backgroundColor: '#22C55E' },
   pillLiveText: { color: '#fff', fontWeight: '800', fontSize: 12, letterSpacing: 1 },
   pillText: { color: '#fff', fontWeight: '600', fontSize: 13 },
 
@@ -366,7 +426,7 @@ const s = StyleSheet.create({
   },
   goLiveBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
 
-  // Incoming call
+  // Incoming call overlay
   incomingOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.72)',
@@ -412,6 +472,26 @@ const s = StyleSheet.create({
   callActionSymbol: { color: '#fff', fontSize: 26, fontWeight: '700' },
   callActionLabel: { color: '#fff', fontSize: 13, fontWeight: '600' },
 
+  // Caller info row (active call)
+  callerInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 4,
+    marginBottom: 4,
+  },
+  callerAvatarSmall: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#5B4FCF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  callerAvatarText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  callerInfoName: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  callerInfoSub: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '500' },
+
   // Bottom bar
   bottomBar: {
     position: 'absolute',
@@ -421,13 +501,6 @@ const s = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 14,
     gap: 8,
-  },
-  activeCallLabel: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 4,
   },
   controlsShelf: {
     flexDirection: 'row',

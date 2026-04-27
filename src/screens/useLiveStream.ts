@@ -18,7 +18,8 @@ type CallSignalType =
   | 'call-request'
   | 'call-accepted'
   | 'call-rejected'
-  | 'call-ended';
+  | 'call-ended'
+  | 'stream-ended';
 
 type CallSignal = {
   type: CallSignalType;
@@ -85,6 +86,14 @@ export const useLiveStream = () => {
   const [outgoingCall, setOutgoingCall] = useState<CallSession | null>(null);
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
+
+  // Bystander state: host is on a private call
+  const [isHostBusyOnCall, setIsHostBusyOnCall] = useState(false);
+  const [hostBusyCallType, setHostBusyCallType] = useState<CallType | null>(null);
+
+  // Viewer state: host ended the stream
+  const [isStreamEnded, setIsStreamEnded] = useState(false);
+
   const isHostRef = useRef(isHost);
   const outgoingCallRef = useRef<CallSession | null>(null);
   const activeCallRef = useRef<CallSession | null>(null);
@@ -178,22 +187,18 @@ export const useLiveStream = () => {
     viewerCallModeRef.current = true;
 
     if (callType === 'video') {
-      // Enable video engine + capture so PiP self-view renders.
       engineRef.current.enableVideo();
       engineRef.current.startPreview();
     }
 
-    // Publish viewer's tracks so host can hear/see them.
     engineRef.current.updateChannelMediaOptions({
       publishMicrophoneTrack: true,
       publishCameraTrack: callType === 'video',
     });
 
-    // Sync UI toggle state.
     setIsMicOn(true);
     setIsCameraOn(callType === 'video');
 
-    // For audio calls suppress remote video (not needed).
     if (callType === 'audio') {
       engineRef.current.muteAllRemoteVideoStreams(true);
     }
@@ -206,7 +211,6 @@ export const useLiveStream = () => {
 
     viewerCallModeRef.current = false;
 
-    // Stop publishing — back to silent audience mode.
     engineRef.current.updateChannelMediaOptions({
       publishMicrophoneTrack: false,
       publishCameraTrack: false,
@@ -271,6 +275,9 @@ export const useLiveStream = () => {
     setOutgoingCall(null);
     setActiveCall(null);
     setCallNotice(null);
+    setIsHostBusyOnCall(false);
+    setHostBusyCallType(null);
+    setIsStreamEnded(false);
     dataStreamIdRef.current = null;
     hostMediaBeforeCallRef.current = null;
 
@@ -314,6 +321,32 @@ export const useLiveStream = () => {
     setOutgoingCall(null);
     setActiveCall(null);
     setCallNotice(null);
+    setIsHostBusyOnCall(false);
+    setHostBusyCallType(null);
+    setIsStreamEnded(false);
+  };
+
+  // 📡 End stream: notify all viewers then leave
+  const endStream = () => {
+    // End any active call first so caller viewer gets notified
+    const callToEnd = activeCall ?? outgoingCall ?? incomingCall;
+    if (callToEnd) {
+      sendSignal({
+        type: 'call-ended',
+        callId: callToEnd.callId,
+        callType: callToEnd.callType,
+        fromRole: 'host',
+      });
+    }
+
+    sendSignal({
+      type: 'stream-ended',
+      callId: '',
+      callType: 'audio',
+      fromRole: 'host',
+    });
+
+    leave();
   };
 
   // 🎙 Mic
@@ -468,6 +501,7 @@ export const useLiveStream = () => {
       await engine.initialize({ appId: APP_ID });
 
       const handleIncomingSignal = (signal: CallSignal) => {
+        // call-request: only host handles
         if (signal.type === 'call-request') {
           if (isHostRef.current) {
             setIncomingCall({
@@ -477,44 +511,61 @@ export const useLiveStream = () => {
               status: 'ringing',
             });
             setCallNotice(
-              `Incoming ${
-                signal.callType === 'audio' ? 'audio' : 'video'
-              } call`,
+              `Incoming ${signal.callType === 'audio' ? 'audio' : 'video'} call`,
             );
           }
-
           return;
         }
 
-        // Host ignores accepted/rejected/ended — host is the sender of those
+        // stream-ended: only viewers handle (host sends it)
+        if (signal.type === 'stream-ended') {
+          if (!isHostRef.current) {
+            setIsStreamEnded(true);
+          }
+          return;
+        }
+
+        // Host handles call-ended from viewer (so host exits call mode when viewer hangs up)
         if (isHostRef.current) {
+          if (signal.type === 'call-ended') {
+            restoreHostMedia();
+            setActiveCall(null);
+            setIncomingCall(null);
+            setCallNotice('Viewer ended the call');
+          }
+          // Host ignores call-accepted and call-rejected (host sent those)
           return;
         }
 
+        // Below: viewer handling
         const isCallerForThisCall =
           outgoingCallRef.current?.callId === signal.callId ||
           activeCallRef.current?.callId === signal.callId;
 
-        // Bystander viewers (3, 4, 5): not involved in this call
+        // Bystander viewers: not involved in this call
         if (!isCallerForThisCall) {
           if (signal.type === 'call-accepted') {
-            // Mute host audio so bystanders cannot hear the private call
+            // Audio call: mute audio only — bystanders still see host video
             engineRef.current?.muteAllRemoteAudioStreams(true);
             bystandardMutedRef.current.audio = true;
+            setIsHostBusyOnCall(true);
+            setHostBusyCallType(signal.callType);
 
             if (signal.callType === 'video') {
-              // Also mute host video for a private video call
+              // Video call: mute video too — nothing to see
               engineRef.current?.muteAllRemoteVideoStreams(true);
               bystandardMutedRef.current.video = true;
             }
           } else if (signal.type === 'call-ended') {
             restoreBystander();
+            setIsHostBusyOnCall(false);
+            setHostBusyCallType(null);
           }
 
           return;
         }
 
-        // Below: the actual caller (viewer 2)
+        // The actual caller (viewer who initiated the call)
         if (signal.type === 'call-accepted') {
           const connectedCall = {
             callId: signal.callId,
@@ -577,6 +628,9 @@ export const useLiveStream = () => {
           setOutgoingCall(null);
           setActiveCall(null);
           setCallNotice(null);
+          setIsHostBusyOnCall(false);
+          setHostBusyCallType(null);
+          setIsStreamEnded(false);
           dataStreamIdRef.current = null;
           restoreHostMedia();
           exitViewerCallMode();
@@ -642,6 +696,7 @@ export const useLiveStream = () => {
     joinAsHost: () => join(true),
     joinAsGuest: () => join(false),
     leave,
+    endStream,
 
     users,
     userCount: users.length,
@@ -661,5 +716,9 @@ export const useLiveStream = () => {
     acceptIncomingCall,
     rejectIncomingCall,
     endCall,
+
+    isHostBusyOnCall,
+    hostBusyCallType,
+    isStreamEnded,
   };
 };
