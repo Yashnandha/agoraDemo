@@ -89,7 +89,9 @@ export const useLiveStream = () => {
 
   // Bystander state: host is on a private call
   const [isHostBusyOnCall, setIsHostBusyOnCall] = useState(false);
-  const [hostBusyCallType, setHostBusyCallType] = useState<CallType | null>(null);
+  const [hostBusyCallType, setHostBusyCallType] = useState<CallType | null>(
+    null,
+  );
 
   // Viewer state: host ended the stream
   const [isStreamEnded, setIsStreamEnded] = useState(false);
@@ -170,7 +172,7 @@ export const useLiveStream = () => {
     if (callType === 'audio') {
       setIsCameraOn(false);
       engineRef.current.muteLocalAudioStream(false);
-      engineRef.current.muteLocalVideoStream(true);
+      engineRef.current.muteLocalVideoStream(false);
       return;
     }
 
@@ -511,7 +513,9 @@ export const useLiveStream = () => {
               status: 'ringing',
             });
             setCallNotice(
-              `Incoming ${signal.callType === 'audio' ? 'audio' : 'video'} call`,
+              `Incoming ${
+                signal.callType === 'audio' ? 'audio' : 'video'
+              } call`,
             );
           }
           return;
@@ -541,6 +545,7 @@ export const useLiveStream = () => {
         const isCallerForThisCall =
           outgoingCallRef.current?.callId === signal.callId ||
           activeCallRef.current?.callId === signal.callId;
+        console.log(signal, 'signal');
 
         // Bystander viewers: not involved in this call
         if (!isCallerForThisCall) {
