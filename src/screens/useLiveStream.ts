@@ -176,6 +176,11 @@ export const useLiveStream = () => {
     }
 
     viewerCallModeRef.current = true;
+    // Publish viewer's tracks so host can hear/see them during the call.
+    engineRef.current.updateChannelMediaOptions({
+      publishMicrophoneTrack: true,
+      publishCameraTrack: callType === 'video',
+    });
     // For audio calls suppress all remote video (not needed).
     // For video calls keep remote video so the caller can see the host.
     if (callType === 'audio') {
@@ -189,6 +194,11 @@ export const useLiveStream = () => {
     }
 
     viewerCallModeRef.current = false;
+    // Stop publishing viewer's tracks — back to audience-only mode.
+    engineRef.current.updateChannelMediaOptions({
+      publishMicrophoneTrack: false,
+      publishCameraTrack: false,
+    });
     engineRef.current.muteAllRemoteVideoStreams(false);
   };
 
