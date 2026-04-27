@@ -1,6 +1,6 @@
 const APP_ID = '77d686684b7e43bc861801550f9b3e78';
 const TOKEN =
-  '007eJxTYBB+JaWiz+Hhe71/+tlzp6R1vk2M37GhRO/TxsuL9qzhnCOhwGBunmJmYWZmYZJknmpinJRsYWZoYWBoamqQZplknGpusdbkdWZDICPDnfRAFkYGCATx2RlKUotLDA0MGRgAmK8gCA==';
+  '007eJxTYGB4Hvl6glLtycvezAF9jEYT3Qx+Oe2Mmv3w4NaMRx3l3nwKDObmKWYWZmYWJknmqSbGSckWZoYWBoampgZplknGqeYWHmzvMxsCGRli9/gxMjJAIIjPzlCSWlxiaGDIwAAAWjkeqw==';
 
 const DEFAULT_CHANNEL = 'test101';
 const CHANNEL = DEFAULT_CHANNEL;
