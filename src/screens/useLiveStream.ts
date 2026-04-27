@@ -170,15 +170,17 @@ export const useLiveStream = () => {
     engineRef.current.muteLocalVideoStream(false);
   };
 
-  const enterViewerCallMode = () => {
+  const enterViewerCallMode = (callType: CallType) => {
     if (!engineRef.current || viewerCallModeRef.current) {
       return;
     }
 
     viewerCallModeRef.current = true;
-    // Keep remote audio available for the private call; only suppress video
-    // so the viewer flow can switch away from the live stream view cleanly.
-    engineRef.current.muteAllRemoteVideoStreams(true);
+    // For audio calls suppress all remote video (not needed).
+    // For video calls keep remote video so the caller can see the host.
+    if (callType === 'audio') {
+      engineRef.current.muteAllRemoteVideoStreams(true);
+    }
   };
 
   const exitViewerCallMode = () => {
@@ -499,7 +501,7 @@ export const useLiveStream = () => {
           setCallNotice(
             `${signal.callType === 'audio' ? 'Audio' : 'Video'} call connected`,
           );
-          enterViewerCallMode();
+          enterViewerCallMode(signal.callType);
           return;
         }
 
