@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   StatusBar,
   StyleSheet,
   Text,
@@ -135,15 +136,34 @@ const VideoCallScreen = ({ onBack }: Props) => {
               </Text>
 
               {outgoingCall ? (
-                <Text style={styles.helper}>
-                  Sending {outgoingCall.callType} request to host...
-                </Text>
+                <View style={styles.stateCard}>
+                  <View style={styles.stateHeader}>
+                    <View style={[styles.stateChip, styles.stateChipPending]}>
+                      <Text style={styles.stateChipText}>Outgoing</Text>
+                    </View>
+                    <ActivityIndicator color="#38BDF8" />
+                  </View>
+                  <Text style={styles.stateTitle}>
+                    Sending {outgoingCall.callType} request to host
+                  </Text>
+                  <Text style={styles.helper}>
+                    Waiting for the host to pick up the video call.
+                  </Text>
+                </View>
               ) : activeCall ? (
-                <Text style={styles.helper}>
-                  {activeCall.callType === 'video'
-                    ? 'Video call connected.'
-                    : 'Audio call connected.'}
-                </Text>
+                <View style={styles.stateCard}>
+                  <View style={[styles.stateChip, styles.stateChipLive]}>
+                    <Text style={styles.stateChipText}>On Call</Text>
+                  </View>
+                  <Text style={styles.stateTitle}>
+                    {activeCall.callType === 'video'
+                      ? 'Video call connected.'
+                      : 'Audio call connected.'}
+                  </Text>
+                  <Text style={styles.helper}>
+                    Camera and mic controls stay available while the call is active.
+                  </Text>
+                </View>
               ) : (
                 <Text style={styles.helper}>
                   {isHost
@@ -360,6 +380,42 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 13,
     lineHeight: 18,
+  },
+  stateCard: {
+    backgroundColor: '#0B1224',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    padding: 16,
+    gap: 10,
+  },
+  stateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  stateChip: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  stateChipPending: {
+    backgroundColor: '#1D4ED8',
+  },
+  stateChipLive: {
+    backgroundColor: '#10B981',
+  },
+  stateChipText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  stateTitle: {
+    color: '#F8FAFC',
+    fontSize: 17,
+    fontWeight: '800',
   },
   errorText: {
     color: '#FCA5A5',

@@ -77,6 +77,7 @@ export const useLiveStream = () => {
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
   const isHostRef = useRef(isHost);
+  const incomingCallRef = useRef<CallSession | null>(null);
   const outgoingCallRef = useRef<CallSession | null>(null);
   const activeCallRef = useRef<CallSession | null>(null);
 
@@ -85,6 +86,10 @@ export const useLiveStream = () => {
   useEffect(() => {
     isHostRef.current = isHost;
   }, [isHost]);
+
+  useEffect(() => {
+    incomingCallRef.current = incomingCall;
+  }, [incomingCall]);
 
   useEffect(() => {
     outgoingCallRef.current = outgoingCall;
@@ -178,6 +183,36 @@ export const useLiveStream = () => {
     engineRef.current.muteAllRemoteVideoStreams(false);
   };
 
+  const resetCallState = () => {
+    setActiveCall(null);
+    setOutgoingCall(null);
+    setIncomingCall(null);
+  };
+
+  const teardownCallSession = (options?: {
+    notifyPeer?: boolean;
+    notice?: string | null;
+  }) => {
+    const callToEnd =
+      activeCallRef.current ??
+      outgoingCallRef.current ??
+      incomingCallRef.current;
+
+    if (options?.notifyPeer !== false && callToEnd) {
+      sendSignal({
+        type: 'call-ended',
+        callId: callToEnd.callId,
+        callType: callToEnd.callType,
+        fromRole: isHostRef.current ? 'host' : 'viewer',
+      });
+    }
+
+    restoreHostMedia();
+    exitViewerCallMode();
+    resetCallState();
+    setCallNotice(options?.notice ?? 'Call ended');
+  };
+
   const restoreHostMedia = () => {
     if (!engineRef.current || !hostMediaBeforeCallRef.current) {
       return;
@@ -249,18 +284,21 @@ export const useLiveStream = () => {
 
   // ❌ Leave
   const leave = () => {
+    if (activeCallRef.current || outgoingCallRef.current || incomingCallRef.current) {
+      teardownCallSession({ notice: 'Call ended' });
+    } else {
+      restoreHostMedia();
+      exitViewerCallMode();
+      resetCallState();
+      setCallNotice(null);
+    }
+
     engineRef.current?.leaveChannel();
     stopPreview();
-    restoreHostMedia();
-    exitViewerCallMode();
     dataStreamIdRef.current = null;
     setRemoteUid(null);
     setUsers([]);
     setSeconds(0);
-    setIncomingCall(null);
-    setOutgoingCall(null);
-    setActiveCall(null);
-    setCallNotice(null);
   };
 
   // 🎙 Mic
@@ -361,20 +399,12 @@ export const useLiveStream = () => {
     const callToEnd = activeCall ?? outgoingCall ?? incomingCall;
 
     if (callToEnd) {
-      sendSignal({
-        type: 'call-ended',
-        callId: callToEnd.callId,
-        callType: callToEnd.callType,
-        fromRole: isHost ? 'host' : 'viewer',
+      teardownCallSession({
+        notifyPeer: true,
+        notice: 'Call ended',
       });
+      return;
     }
-
-    restoreHostMedia();
-    exitViewerCallMode();
-    setActiveCall(null);
-    setOutgoingCall(null);
-    setIncomingCall(null);
-    setCallNotice('Call ended');
   };
 
   // ⏱ Timer
@@ -431,18 +461,18 @@ export const useLiveStream = () => {
           return;
         }
 
-        if (isHostRef.current) {
-          return;
-        }
-
-        if (
-          outgoingCallRef.current?.callId !== signal.callId &&
-          activeCallRef.current?.callId !== signal.callId
-        ) {
-          return;
-        }
-
         if (signal.type === 'call-accepted') {
+          if (isHostRef.current) {
+            return;
+          }
+
+          if (
+            outgoingCallRef.current?.callId !== signal.callId &&
+            activeCallRef.current?.callId !== signal.callId
+          ) {
+            return;
+          }
+
           const connectedCall = {
             callId: signal.callId,
             callType: signal.callType,
@@ -460,16 +490,40 @@ export const useLiveStream = () => {
         }
 
         if (signal.type === 'call-rejected') {
-          setOutgoingCall(prev =>
-            prev?.callId === signal.callId
-              ? { ...prev, status: 'rejected' }
-              : prev,
-          );
+          if (isHostRef.current) {
+            return;
+          }
+
+          if (outgoingCallRef.current?.callId !== signal.callId) {
+            return;
+          }
+
+          setOutgoingCall(null);
           setCallNotice('Host declined the call');
           return;
         }
 
         if (signal.type === 'call-ended') {
+          const matchesIncoming = incomingCallRef.current?.callId === signal.callId;
+          const matchesOutgoing = outgoingCallRef.current?.callId === signal.callId;
+          const matchesActive = activeCallRef.current?.callId === signal.callId;
+
+          if (!matchesIncoming && !matchesOutgoing && !matchesActive) {
+            return;
+          }
+
+          if (isHostRef.current) {
+            if (!matchesIncoming && !matchesActive) {
+              return;
+            }
+
+            restoreHostMedia();
+            exitViewerCallMode();
+            resetCallState();
+            setCallNotice('Call ended');
+            return;
+          }
+
           setOutgoingCall(null);
           setActiveCall(null);
           setCallNotice('Call ended');
@@ -500,9 +554,7 @@ export const useLiveStream = () => {
           setRemoteUid(null);
           setUsers([]);
           setSeconds(0);
-          setIncomingCall(null);
-          setOutgoingCall(null);
-          setActiveCall(null);
+          resetCallState();
           setCallNotice(null);
           dataStreamIdRef.current = null;
           restoreHostMedia();

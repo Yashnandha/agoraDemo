@@ -198,18 +198,32 @@ const LiveStreamScreen = () => {
             </View>
 
             {outgoingCall && !isHost ? (
-              <View style={styles.callState}>
-                <ActivityIndicator color="#38BDF8" />
-                <Text style={styles.callStateText}>
-                  Calling host with {outgoingCall.callType} call...
+              <View style={styles.callStateCard}>
+                <View style={styles.callStateHeader}>
+                  <View style={[styles.stateChip, styles.stateChipPending]}>
+                    <Text style={styles.stateChipText}>Outgoing</Text>
+                  </View>
+                  <ActivityIndicator color="#38BDF8" />
+                </View>
+                <Text style={styles.callStateTitle}>
+                  Calling host with {outgoingCall.callType} call
+                </Text>
+                <Text style={styles.callStateBody}>
+                  We’re waiting for the host to accept the request.
                 </Text>
               </View>
             ) : activeCall && !isHost ? (
-              <View style={styles.callState}>
-                <Text style={styles.callStateText}>
+              <View style={styles.callStateCard}>
+                <View style={[styles.stateChip, styles.stateChipLive]}>
+                  <Text style={styles.stateChipText}>On Call</Text>
+                </View>
+                <Text style={styles.callStateTitle}>
                   {activeCall.callType === 'audio'
                     ? 'Audio call connected'
                     : 'Video call connected'}
+                </Text>
+                <Text style={styles.callStateBody}>
+                  The private call is now active. You can end it anytime.
                 </Text>
               </View>
             ) : null}
@@ -514,17 +528,52 @@ const styles = StyleSheet.create({
     backgroundColor: '#8B5CF6',
   },
 
-  callState: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  callStateCard: {
+    backgroundColor: '#0B1224',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    padding: 16,
     gap: 10,
-    paddingVertical: 2,
   },
 
-  callStateText: {
-    color: '#E2E8F0',
-    fontWeight: '600',
-    flexShrink: 1,
+  callStateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  stateChip: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+
+  stateChipPending: {
+    backgroundColor: '#1D4ED8',
+  },
+
+  stateChipLive: {
+    backgroundColor: '#10B981',
+  },
+
+  stateChipText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+
+  callStateTitle: {
+    color: '#F8FAFC',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+
+  callStateBody: {
+    color: '#CBD5E1',
+    lineHeight: 19,
   },
 
   endCall: {
